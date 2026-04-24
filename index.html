@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="SecureX cyber defense platform with live scans, threat intelligence, command-center dashboard, and practical security tools." />
+  <meta name="keywords" content="SecureX, cybersecurity, threat detection, AI security, malware scanner, phishing checker" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <title>SecureX | Defend. Detect. Dominate.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <canvas id="matrix"></canvas>
+  <div class="noise"></div>
+  <div class="cursor-glow" id="cursor-glow"></div>
+
+  <header class="nav shell glass">
+    <a class="logo" href="#hero">Secure<span>X</span></a>
+    <nav id="nav-menu">
+      <a href="#scan">Scans</a>
+      <a href="#dashboard">Dashboard</a>
+      <a href="#news">Intel</a>
+      <a href="#lab">Lab</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#payment">Payment</a>
+      <a href="#contact">Contact</a>
+    </nav>
+    <button id="nav-toggle" aria-label="Open navigation"><i class="fa-solid fa-bars"></i></button>
+  </header>
+
+  <main>
+    <section id="hero" class="section shell hero">
+      <div class="hero-left reveal">
+        <p class="tag">Cyber Defense Command Center</p>
+        <h1>SecureX - Intelligent Cyber Defense for Everyone</h1>
+        <p class="lead">AI-powered protection, threat intelligence, and practical tools for daily cyber safety across teams and personal devices.</p>
+        <div class="hero-cta">
+          <a class="btn btn-red" href="#scan">Start Scan</a>
+          <a class="btn btn-cyan" href="#dashboard">Explore Platform</a>
+        </div>
+        <div class="quick-metrics">
+          <article class="glass metric-card"><h3>99.7%</h3><p>Detection confidence</p></article>
+          <article class="glass metric-card"><h3>2.3s</h3><p>Average scan latency</p></article>
+          <article class="glass metric-card"><h3>5.2M</h3><p>Signals processed daily</p></article>
+        </div>
+      </div>
+      <div class="hero-right reveal" data-parallax="0.08">
+        <div class="ring-wrap">
+          <div class="ring ring-a"></div>
+          <div class="ring ring-b"></div>
+          <div class="ring ring-c"></div>
+          <div class="shield-core"><i class="fa-solid fa-shield-halved"></i></div>
+        </div>
+        <div class="floating-icons">
+          <span><i class="fa-solid fa-lock"></i></span>
+          <span><i class="fa-solid fa-key"></i></span>
+          <span><i class="fa-solid fa-fingerprint"></i></span>
+        </div>
+      </div>
+    </section>
+
+    <section id="scan" class="section shell">
+      <div class="heading reveal"><p class="tag">Scan Center</p><h2>Interactive Security Toolkit</h2></div>
+      <div class="scan-grid">
+        <article class="glass panel reveal">
+          <h3>URL Scanner</h3>
+          <div class="input-row"><input id="url-input" type="url" placeholder="https://domain.tld" /><button class="btn btn-red" id="url-btn">Scan</button></div>
+          <p id="url-result" class="result">Awaiting scan.</p>
+        </article>
+        <article class="glass panel reveal">
+          <h3>File Safety + Malware Probability</h3>
+          <div class="input-row"><input id="file-input" type="text" placeholder="setup.exe or SHA256 hash" /><button class="btn btn-red" id="file-btn">Analyze</button></div>
+          <p id="file-result" class="result">Awaiting analysis.</p>
+        </article>
+        <article class="glass panel reveal">
+          <h3>Phishing + IP Reputation</h3>
+          <div class="input-col"><input id="domain-input" type="text" placeholder="suspicious-domain.com" /><input id="ip-input" type="text" placeholder="185.20.12.7" /><button class="btn btn-red" id="phish-btn">Check Reputation</button></div>
+          <p id="phish-result" class="result">Awaiting analysis.</p>
+        </article>
+        <article class="glass panel reveal">
+          <h3>Password + Breach Exposure</h3>
+          <div class="input-col"><input id="password-input" type="password" placeholder="Password" /><input id="email-input" type="email" placeholder="name@company.com" /><button class="btn btn-red" id="cred-btn">Evaluate</button></div>
+          <p id="cred-result" class="result">Awaiting analysis (Pwned Passwords + breach domain intelligence).</p>
+        </article>
+      </div>
+      <div class="risk-grid">
+        <article class="glass panel reveal">
+          <h3>Real-Time Risk Score</h3>
+          <div class="gauge"><svg viewBox="0 0 220 220"><circle cx="110" cy="110" r="90" class="bg"></circle><circle cx="110" cy="110" r="90" class="fg" id="risk-fg"></circle></svg><div id="risk-num">42</div></div>
+          <p id="risk-label" class="risk-label">Moderate Exposure</p>
+        </article>
+        <article class="glass panel reveal">
+          <h3>AI Recommendations</h3>
+          <div class="radar"><div class="sweep"></div></div>
+          <ul id="recs" class="recs"></ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="dashboard" class="section shell">
+      <div class="heading reveal"><p class="tag">Threat Dashboard</p><h2>Live Defense Telemetry</h2></div>
+      <div class="tiles">
+        <article class="glass tile reveal"><span>Threat Alerts</span><h3 id="m-alerts">210</h3></article>
+        <article class="glass tile reveal"><span>Attack Attempts</span><h3 id="m-attempts">3490</h3></article>
+        <article class="glass tile reveal"><span>Blocked Malware</span><h3 id="m-malware">1715</h3></article>
+        <article class="glass tile reveal"><span>Active Scans</span><h3 id="m-scans">36</h3></article>
+      </div>
+      <div class="dash-grid">
+        <article class="glass panel reveal">
+          <h3>Threat Velocity (24h)</h3>
+          <canvas id="threat-chart" height="130"></canvas>
+        </article>
+        <article class="glass panel reveal">
+          <h3>Security Score</h3>
+          <div class="score"><span id="score-fill"></span></div>
+          <p id="score-label">Overall Security Score: 88/100</p>
+          <div id="devices" class="devices"></div>
+        </article>
+        <article class="glass panel reveal">
+          <h3>Global Attack Heatmap</h3>
+          <div id="heatmap" class="heatmap"></div>
+        </article>
+        <article class="glass panel reveal">
+          <h3>Incident Timeline</h3>
+          <ul id="timeline" class="timeline"></ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="news" class="section shell">
+      <div class="heading reveal"><p class="tag">Intel Feed</p><h2>Cyber News and Vulnerability Updates</h2></div>
+      <div class="ticker glass reveal"><div id="ticker-track"></div></div>
+      <div id="news-grid" class="news-grid"></div>
+    </section>
+
+    <section id="lab" class="section shell">
+      <div class="heading reveal"><p class="tag">Security Lab</p><h2>Tools Hub for Daily Protection</h2></div>
+      <div class="lab-grid">
+        <article class="glass panel reveal"><h3>Password Generator</h3><div class="input-row"><input id="pass-len" type="number" min="8" max="64" value="18" /><button class="btn btn-cyan" id="gen-pass">Generate</button></div><p id="pass-out" class="result">Generate a strong password.</p></article>
+        <article class="glass panel reveal"><h3>Browser Privacy Score</h3><button class="btn btn-cyan" id="privacy-btn">Run Quick Audit</button><p id="privacy-out" class="result">No audit yet.</p></article>
+        <article class="glass panel reveal"><h3>Antivirus Comparison</h3><table><thead><tr><th>Tool</th><th>Detection</th><th>Speed</th></tr></thead><tbody><tr><td>SecureX Sentinel</td><td>99.7%</td><td>Fast</td></tr><tr><td>Defender Pro</td><td>97.9%</td><td>Moderate</td></tr><tr><td>ShieldGrid</td><td>98.8%</td><td>Fast</td></tr></tbody></table></article>
+        <article class="glass panel reveal"><h3>Checklist Profiles</h3><div class="input-row"><select id="profile"><option value="gamers">Gamers</option><option value="students">Students</option><option value="businesses">Businesses</option></select><button class="btn btn-cyan" id="load-check">Load</button></div><ul id="checklist" class="timeline"></ul></article>
+      </div>
+      <div class="actions reveal"><button class="btn btn-red" id="download-report">Download Report</button><button class="btn btn-cyan" id="save-history">Save Scan History</button><span id="history-msg">No history saved.</span></div>
+    </section>
+
+    <section id="features" class="section shell">
+      <div class="heading reveal"><p class="tag">Features</p><h2>Built For Real Security Work</h2></div>
+      <div class="feature-grid">
+        <article class="glass f reveal"><i class="fa-solid fa-brain"></i><h3>AI Threat Detection</h3></article>
+        <article class="glass f reveal"><i class="fa-solid fa-virus"></i><h3>Malware Scanner</h3></article>
+        <article class="glass f reveal"><i class="fa-solid fa-fish"></i><h3>Phishing Protection</h3></article>
+        <article class="glass f reveal"><i class="fa-solid fa-chart-line"></i><h3>Live Dashboard</h3></article>
+        <article class="glass f reveal"><i class="fa-solid fa-newspaper"></i><h3>News Feed</h3></article>
+        <article class="glass f reveal"><i class="fa-solid fa-user-shield"></i><h3>Privacy Tools</h3></article>
+        <article class="glass f reveal"><i class="fa-solid fa-cloud"></i><h3>Cloud Security</h3></article>
+        <article class="glass f reveal"><i class="fa-solid fa-users"></i><h3>Team Collaboration</h3></article>
+      </div>
+    </section>
+
+    <section id="pricing" class="section shell">
+      <div class="heading reveal"><p class="tag">Pricing</p><h2>Choose Your Security Tier</h2></div>
+      <div class="pricing-grid">
+        <article class="glass price reveal"><h3>Free</h3><p class="cost">$0</p><ul><li>Basic scans</li><li>Daily risk score</li><li>Community intel feed</li></ul><button class="btn btn-cyan">Get Started</button></article>
+        <article class="glass price pro reveal"><span class="pill">Popular</span><h3>Pro</h3><p class="cost">$29/mo</p><ul><li>Unlimited scans</li><li>AI recommendations</li><li>Live SOC dashboard</li></ul><button class="btn btn-red">Go Pro</button></article>
+        <article class="glass price reveal"><h3>Enterprise</h3><p class="cost">Custom</p><ul><li>SSO + SIEM integrations</li><li>24/7 response support</li><li>Dedicated success engineer</li></ul><button class="btn btn-cyan">Contact Sales</button></article>
+      </div>
+    </section>
+
+    <section id="payment" class="section shell">
+      <div class="heading reveal"><p class="tag">Payment</p><h2>SecureX UPI Payment</h2></div>
+      <div class="payment-grid">
+        <article class="glass panel reveal">
+          <h3>Pay via UPI</h3>
+          <p class="result">UPI ID: <strong>7021157367@fam</strong></p>
+          <div class="input-row">
+            <input id="upi-amount" type="number" min="1" step="1" value="499" />
+            <input id="upi-note" type="text" value="SecureX Subscription" />
+          </div>
+          <div class="actions">
+            <button class="btn btn-red" id="upi-pay-btn">Pay in UPI App</button>
+            <button class="btn btn-cyan" id="upi-copy-btn">Copy UPI ID</button>
+          </div>
+          <p id="upi-status" class="result">Enter amount and click pay.</p>
+        </article>
+        <article class="glass panel reveal center-panel">
+          <h3>Scan UPI QR</h3>
+          <img id="upi-qr" alt="UPI QR Code for SecureX payment" />
+        </article>
+      </div>
+    </section>
+
+    <section id="team" class="section shell">
+      <div class="heading reveal"><p class="tag">Team</p><h2>Security Operators and Researchers</h2></div>
+      <div class="team-grid">
+        <article class="glass member reveal"><div class="avatar">AR</div><h3>Ava Reynolds</h3><p>CEO</p><div class="icons"><i class="fa-brands fa-linkedin"></i><i class="fa-brands fa-github"></i></div></article>
+        <article class="glass member reveal"><div class="avatar">KM</div><h3>Kai Morgan</h3><p>CTO</p><div class="icons"><i class="fa-brands fa-linkedin"></i><i class="fa-brands fa-github"></i></div></article>
+        <article class="glass member reveal"><div class="avatar">SN</div><h3>Sera Nadel</h3><p>Head of Research</p><div class="icons"><i class="fa-brands fa-linkedin"></i><i class="fa-brands fa-github"></i></div></article>
+      </div>
+    </section>
+
+    <section id="contact" class="section shell">
+      <div class="heading reveal"><p class="tag">Contact</p><h2>Get in Touch</h2></div>
+      <div class="contact-grid">
+        <form id="contact-form" class="glass panel reveal"><h3>Contact SecureX</h3><input required type="text" placeholder="Name" /><input required type="email" placeholder="Work email" /><textarea required placeholder="Tell us what you need"></textarea><button class="btn btn-red" type="submit">Send</button></form>
+        <form id="bug-form" class="glass panel reveal"><h3>Bug Report</h3><input required type="text" placeholder="Issue title" /><textarea required placeholder="Description"></textarea><button class="btn btn-cyan" type="submit">Submit</button></form>
+        <form id="newsletter-form" class="glass panel reveal"><h3>Newsletter</h3><input required type="email" placeholder="Email" /><button class="btn btn-cyan" type="submit">Subscribe</button><p class="result">Weekly zero-day, breach and patch updates.</p></form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell footer glass">
+    <p>SecureX Command Center</p>
+    <p>2026 SecureX. All rights reserved.</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
