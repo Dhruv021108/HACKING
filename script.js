@@ -1,6 +1,24 @@
+﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
 const $ = (id) => document.getElementById(id);
 
 const state = {
+  authReady: false,
+  firebaseReady: false,
+  user: null,
+  idToken: "",
+  plan: "free",
+  subscriptionStatus: "inactive",
+  remainingCredits: 0,
+  dailyCredits: 10,
+  resetAtIso: null,
   factors: { url: 42, file: 40, phish: 44, creds: 41 },
   risk: 42,
   intel: {
@@ -46,11 +64,34 @@ const recMap = {
 const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+function setText(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
+
+function setAuthStatus(text) {
+  setText("auth-status", text);
+  setText("gate-status", text);
+}
+
+function updatePlanUi() {
+  setText("plan-label", state.plan.toUpperCase());
+  setText("credits-remaining", String(state.remainingCredits));
+  const reset = state.resetAtIso ? new Date(state.resetAtIso) : null;
+  setText("credits-reset", reset ? reset.toUTCString().slice(17, 22) : "--:--");
+  setText("subscription-status", `Subscription Status: ${state.subscriptionStatus}`);
+  const upBtn = $("upgrade-pro-btn");
+  if (upBtn) {
+    upBtn.disabled = !state.user || state.plan === "pro";
+    upBtn.textContent = state.plan === "pro" ? "Pro Active" : "Upgrade to Pro";
+  }
+}
+
 function setRisk() {
   const avg = Object.values(state.factors).reduce((a, b) => a + b, 0) / 4;
   state.risk = clamp(Math.round(avg), 1, 99);
 
-  $("risk-num").textContent = String(state.risk);
+  setText("risk-num", String(state.risk));
   const c = 565;
   const offset = c - (c * state.risk) / 100;
   $("risk-fg").style.strokeDashoffset = String(offset);
@@ -65,7 +106,7 @@ function setRisk() {
     level = "high";
     label = "High Exposure";
   }
-  $("risk-label").textContent = label;
+  setText("risk-label", label);
 
   const recs = $("recs");
   recs.innerHTML = "";
@@ -117,14 +158,68 @@ async function loadBreachDomains() {
 }
 
 async function initIntel() {
-  const [phishDomains, breachDomains] = await Promise.all([
-    loadOpenPhishDomains(),
-    loadBreachDomains()
-  ]);
-
+  const [phishDomains, breachDomains] = await Promise.all([loadOpenPhishDomains(), loadBreachDomains()]);
   state.intel.phishDomains = phishDomains;
   state.intel.malwareHashes = new Set(KNOWN_MALWARE_HASHES);
   state.intel.breachDomains = breachDomains;
+}
+
+function apiBase() {
+  return "";
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {})
+  };
+
+  if (state.idToken) headers.Authorization = `Bearer ${state.idToken}`;
+
+  const resp = await fetch(`${apiBase()}${path}`, { ...options, headers });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data.error || "API request failed");
+  }
+  return data;
+}
+
+async function bootstrapUser() {
+  const data = await apiFetch("/api/users/bootstrap", { method: "POST", body: "{}" });
+  state.plan = data.plan || "free";
+  state.subscriptionStatus = data.subscriptionStatus || "inactive";
+  state.remainingCredits = Number(data.remaining || 0);
+  state.dailyCredits = Number(data.dailyCredits || 10);
+  state.resetAtIso = data.resetAt || null;
+  if (data?.price?.inrMonthly) {
+    setText("inr-price", `Charged as approx INR ${data.price.inrMonthly}/month (display: $${data.price.usdMonthly}/mo).`);
+  }
+  updatePlanUi();
+}
+
+async function consumeCredit(action) {
+  const data = await apiFetch("/api/credits/consume", {
+    method: "POST",
+    body: JSON.stringify({ action })
+  });
+
+  if (!data.allowed) {
+    state.remainingCredits = 0;
+    state.resetAtIso = data.resetAt || state.resetAtIso;
+    updatePlanUi();
+    throw new Error("Daily credits exhausted. Upgrade to Pro for 200 credits/day.");
+  }
+
+  state.remainingCredits = Number(data.remaining || 0);
+  state.plan = data.plan || state.plan;
+  state.resetAtIso = data.resetAt || state.resetAtIso;
+  updatePlanUi();
+}
+
+async function ensureAuthorized(actionName) {
+  if (!state.firebaseReady) throw new Error("Firebase not configured. Set securex.config.js first.");
+  if (!state.user) throw new Error("Sign in with Google first.");
+  await consumeCredit(actionName);
 }
 
 async function analyzeUrl(url) {
@@ -193,10 +288,10 @@ function analyzeFile(input) {
   if (/^[a-f0-9]{64}$/.test(text)) {
     if (state.intel.malwareHashes.has(text)) {
       score = 97;
-      reasons.push("Hash matched recent MalwareBazaar record");
+      reasons.push("Hash matched malware intelligence record");
     } else {
       score = 34;
-      reasons.push("Hash not found in local recent malware feed snapshot");
+      reasons.push("Hash not found in local malware snapshot");
     }
   } else {
     const ext = (text.split(".").pop() || "").toLowerCase();
@@ -226,7 +321,7 @@ async function analyzePhishAndIp(domain, ip) {
       score += 70;
       notes.push("Domain appears in OpenPhish feed");
     } else {
-      notes.push("Domain not found in current OpenPhish snapshot");
+      notes.push("Domain not found in OpenPhish snapshot");
     }
   }
 
@@ -253,8 +348,7 @@ async function analyzePhishAndIp(domain, ip) {
       }
 
       const org = ipData.company?.name || ipData.datacenter?.datacenter || "Unknown";
-      const loc = ipData.location?.country || "Unknown";
-      notes.push(`IP org: ${org}, country: ${loc}`);
+      notes.push(`IP org: ${org}`);
     } catch {
       score += 10;
       notes.push("IP reputation service unavailable");
@@ -331,45 +425,12 @@ async function analyzeCredentials(password, email) {
       score += 18;
       notes.push(`Email domain appears in HIBP breach catalog (${domain})`);
     } else {
-      notes.push("Email domain not found in current HIBP breach-domain list");
+      notes.push("Email domain not found in HIBP breach-domain list");
     }
   }
 
   score = clamp(score, 6, 99);
   return { score, msg: `Credential risk ${score}/100. ${notes.slice(0, 3).join("; ")}.` };
-}
-
-function wireScans() {
-  $("url-btn").addEventListener("click", async () => {
-    $("url-result").textContent = "Running URL intelligence checks...";
-    const r = await analyzeUrl($("url-input").value.trim());
-    $("url-result").textContent = r.msg;
-    state.factors.url = r.score;
-    setRisk();
-  });
-
-  $("file-btn").addEventListener("click", () => {
-    const r = analyzeFile($("file-input").value.trim());
-    $("file-result").textContent = r.msg;
-    state.factors.file = r.score;
-    setRisk();
-  });
-
-  $("phish-btn").addEventListener("click", async () => {
-    $("phish-result").textContent = "Running phishing and IP intelligence checks...";
-    const r = await analyzePhishAndIp($("domain-input").value.trim(), $("ip-input").value.trim());
-    $("phish-result").textContent = r.msg;
-    state.factors.phish = r.score;
-    setRisk();
-  });
-
-  $("cred-btn").addEventListener("click", async () => {
-    $("cred-result").textContent = "Running password and breach checks...";
-    const r = await analyzeCredentials($("password-input").value, $("email-input").value.trim());
-    $("cred-result").textContent = r.msg;
-    state.factors.creds = r.score;
-    setRisk();
-  });
 }
 
 function setupDashboard() {
@@ -424,14 +485,14 @@ function setupDashboard() {
   for (let i = 0; i < 4; i += 1) pushEvent();
 
   setInterval(() => {
-    $("m-alerts").textContent = String(200 + rand(0, 36));
-    $("m-attempts").textContent = String(3300 + rand(0, 420));
-    $("m-malware").textContent = String(1650 + rand(0, 200));
-    $("m-scans").textContent = String(24 + rand(0, 25));
+    setText("m-alerts", String(200 + rand(0, 36)));
+    setText("m-attempts", String(3300 + rand(0, 420)));
+    setText("m-malware", String(1650 + rand(0, 200)));
+    setText("m-scans", String(24 + rand(0, 25)));
 
     const score = 82 + rand(0, 13);
     $("score-fill").style.width = `${score}%`;
-    $("score-label").textContent = `Overall Security Score: ${score}/100`;
+    setText("score-label", `Overall Security Score: ${score}/100`);
 
     points.push(rand(52, 120));
     points.shift();
@@ -481,7 +542,7 @@ function setupNews() {
   ];
 
   const list = [...ticker, ...ticker];
-  $("ticker-track").textContent = list.map((t) => `* ${t}`).join("    ");
+  setText("ticker-track", list.map((t) => `* ${t}`).join("    "));
 }
 
 function setupLab() {
@@ -490,12 +551,17 @@ function setupLab() {
     const len = clamp(Number($("pass-len").value) || 18, 8, 64);
     let out = "";
     for (let i = 0; i < len; i += 1) out += chars.charAt(Math.floor(Math.random() * chars.length));
-    $("pass-out").textContent = out;
+    setText("pass-out", out);
   });
 
-  $("privacy-btn").addEventListener("click", () => {
-    const score = rand(67, 96);
-    $("privacy-out").textContent = `Privacy score ${score}/100. ${score > 86 ? "Strong browser hardening." : "Enable strict anti-tracking and HTTPS-only mode."}`;
+  $("privacy-btn").addEventListener("click", async () => {
+    try {
+      await ensureAuthorized("privacy_audit");
+      const score = rand(67, 96);
+      setText("privacy-out", `Privacy score ${score}/100. ${score > 86 ? "Strong browser hardening." : "Enable strict anti-tracking and HTTPS-only mode."}`);
+    } catch (error) {
+      setText("privacy-out", String(error.message || error));
+    }
   });
 
   const checklists = {
@@ -514,6 +580,7 @@ function setupLab() {
       ul.appendChild(li);
     });
   };
+
   $("load-check").addEventListener("click", renderChecklist);
   renderChecklist();
 
@@ -521,6 +588,8 @@ function setupLab() {
     const payload = {
       generatedAt: new Date().toISOString(),
       risk: state.risk,
+      plan: state.plan,
+      remainingCredits: state.remainingCredits,
       summary: {
         url: $("url-result").textContent,
         file: $("file-result").textContent,
@@ -536,45 +605,16 @@ function setupLab() {
     URL.revokeObjectURL(a.href);
   });
 
-  $("save-history").addEventListener("click", () => {
-    const now = new Date().toLocaleString();
-    const existing = JSON.parse(localStorage.getItem("securex-history") || "[]");
-    existing.unshift({ time: now, risk: state.risk });
-    localStorage.setItem("securex-history", JSON.stringify(existing.slice(0, 30)));
-    $("history-msg").textContent = `Saved ${Math.min(existing.length, 30)} records.`;
-  });
-}
-
-function buildUpiUri(amount, note) {
-  const pa = "7021157367@fam";
-  const pn = "SecureX";
-  const am = clamp(Number(amount) || 1, 1, 1000000).toFixed(2);
-  const tn = (note || "SecureX Payment").trim();
-  return `upi://pay?pa=${encodeURIComponent(pa)}&pn=${encodeURIComponent(pn)}&am=${encodeURIComponent(am)}&cu=INR&tn=${encodeURIComponent(tn)}`;
-}
-
-function refreshQr() {
-  const uri = buildUpiUri($("upi-amount").value, $("upi-note").value);
-  $("upi-qr").src = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(uri)}`;
-}
-
-function setupPayment() {
-  refreshQr();
-  $("upi-amount").addEventListener("input", refreshQr);
-  $("upi-note").addEventListener("input", refreshQr);
-
-  $("upi-pay-btn").addEventListener("click", () => {
-    const uri = buildUpiUri($("upi-amount").value, $("upi-note").value);
-    $("upi-status").textContent = `Opening UPI app for INR ${Number($("upi-amount").value || 0).toFixed(2)}...`;
-    window.location.href = uri;
-  });
-
-  $("upi-copy-btn").addEventListener("click", async () => {
+  $("save-history").addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText("7021157367@fam");
-      $("upi-status").textContent = "UPI ID copied.";
-    } catch {
-      $("upi-status").textContent = "Could not copy automatically. UPI ID: 7021157367@fam";
+      await ensureAuthorized("save_history");
+      const now = new Date().toLocaleString();
+      const existing = JSON.parse(localStorage.getItem("securex-history") || "[]");
+      existing.unshift({ time: now, risk: state.risk, plan: state.plan });
+      localStorage.setItem("securex-history", JSON.stringify(existing.slice(0, 30)));
+      setText("history-msg", `Saved ${Math.min(existing.length, 30)} records.`);
+    } catch (error) {
+      setText("history-msg", String(error.message || error));
     }
   });
 }
@@ -602,7 +642,6 @@ function setupReveal() {
       if (entry.isIntersecting) entry.target.classList.add("show");
     });
   }, { threshold: 0.15 });
-
   document.querySelectorAll(".reveal").forEach((el) => obs.observe(el));
 }
 
@@ -676,6 +715,215 @@ function setupMatrix() {
   setInterval(draw, 42);
 }
 
+function setProtectedEnabled(enabled) {
+  document.querySelectorAll(".protected-action").forEach((btn) => {
+    btn.disabled = !enabled;
+  });
+}
+
+function setGateVisible(visible) {
+  const gate = $("signin-gate");
+  if (!gate) return;
+  gate.classList.toggle("hidden", !visible);
+  document.body.classList.toggle("gate-locked", visible);
+}
+
+async function refreshBillingHistory() {
+  if (!state.user) return;
+  try {
+    const data = await apiFetch("/api/payments/history", { method: "GET" });
+    const list = $("billing-history");
+    list.innerHTML = "";
+    if (!data.items || !data.items.length) {
+      list.innerHTML = "<li>No payment records yet.</li>";
+      return;
+    }
+
+    data.items.forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = `${item.status.toUpperCase()} - ${item.currency} ${item.amount} (${item.paymentId.slice(0, 12)}...)`;
+      list.appendChild(li);
+    });
+  } catch (error) {
+    setText("subscription-status", `Subscription Status: ${String(error.message || error)}`);
+  }
+}
+
+async function setupAuth() {
+  const cfg = window.SECUREX_CONFIG?.firebase;
+  setGateVisible(true);
+  if (!cfg?.apiKey || !cfg?.authDomain || !cfg?.projectId || !cfg?.appId) {
+    setAuthStatus("Firebase config missing. Fill securex.config.js and redeploy.");
+    setProtectedEnabled(false);
+    setText("gate-status", "Firebase configuration is missing. Add credentials in securex.config.js.");
+    $("gate-login-btn").disabled = true;
+    return;
+  }
+
+  state.firebaseReady = true;
+  const app = initializeApp(cfg);
+  const auth = getAuth(app);
+  const provider = new GoogleAuthProvider();
+
+  const beginSignIn = async () => {
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      setAuthStatus(`Google sign-in failed: ${String(error.message || error)}`);
+    }
+  };
+
+  $("google-login-btn").addEventListener("click", beginSignIn);
+  $("gate-login-btn").addEventListener("click", beginSignIn);
+
+  $("logout-btn").addEventListener("click", async () => {
+    await signOut(auth);
+  });
+
+  onAuthStateChanged(auth, async (user) => {
+    state.user = user;
+    if (!user) {
+      state.idToken = "";
+      state.plan = "free";
+      state.subscriptionStatus = "inactive";
+      state.remainingCredits = 0;
+      state.dailyCredits = 10;
+      state.resetAtIso = null;
+      updatePlanUi();
+      setProtectedEnabled(false);
+      $("google-login-btn").classList.remove("hidden");
+      $("auth-user").classList.add("hidden");
+      setAuthStatus("Sign in with Google to use scans and daily credits.");
+      setGateVisible(true);
+      return;
+    }
+
+    state.idToken = await user.getIdToken(true);
+    $("google-login-btn").classList.add("hidden");
+    $("auth-user").classList.remove("hidden");
+    $("user-avatar").src = user.photoURL || "";
+    setText("user-name", user.displayName || user.email || "User");
+
+    try {
+      await bootstrapUser();
+      await refreshBillingHistory();
+      setProtectedEnabled(true);
+      setAuthStatus("Authenticated. Credits are enforced server-side.");
+      setGateVisible(false);
+    } catch (error) {
+      setProtectedEnabled(false);
+      setAuthStatus(`Auth bootstrap failed: ${String(error.message || error)}`);
+      setGateVisible(true);
+    }
+  });
+
+  $("refresh-billing-btn").addEventListener("click", refreshBillingHistory);
+
+  $("upgrade-pro-btn").addEventListener("click", async () => {
+    if (!state.user) {
+      setAuthStatus("Sign in first to upgrade.");
+      return;
+    }
+
+    try {
+      const checkout = await apiFetch("/api/payments/create-subscription", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+
+      const options = {
+        key: checkout.key,
+        name: "SecureX",
+        description: "$29/month Pro Subscription",
+        subscription_id: checkout.subscriptionId,
+        handler: async (response) => {
+          try {
+            await apiFetch("/api/payments/verify", {
+              method: "POST",
+              body: JSON.stringify(response)
+            });
+            await bootstrapUser();
+            await refreshBillingHistory();
+            setAuthStatus("Pro plan activated.");
+          } catch (error) {
+            setAuthStatus(`Payment verification failed: ${String(error.message || error)}`);
+          }
+        },
+        prefill: {
+          name: state.user.displayName || "",
+          email: state.user.email || ""
+        },
+        notes: {
+          uid: state.user.uid,
+          plan: "pro",
+          displayPrice: "$29/mo"
+        },
+        theme: {
+          color: "#ff0055"
+        }
+      };
+
+      const rz = new window.Razorpay(options);
+      rz.open();
+    } catch (error) {
+      setAuthStatus(`Checkout init failed: ${String(error.message || error)}`);
+    }
+  });
+}
+
+function wireScans() {
+  $("url-btn").addEventListener("click", async () => {
+    try {
+      await ensureAuthorized("url_scan");
+      setText("url-result", "Running URL intelligence checks...");
+      const r = await analyzeUrl($("url-input").value.trim());
+      setText("url-result", r.msg);
+      state.factors.url = r.score;
+      setRisk();
+    } catch (error) {
+      setText("url-result", String(error.message || error));
+    }
+  });
+
+  $("file-btn").addEventListener("click", async () => {
+    try {
+      await ensureAuthorized("file_scan");
+      const r = analyzeFile($("file-input").value.trim());
+      setText("file-result", r.msg);
+      state.factors.file = r.score;
+      setRisk();
+    } catch (error) {
+      setText("file-result", String(error.message || error));
+    }
+  });
+
+  $("phish-btn").addEventListener("click", async () => {
+    try {
+      await ensureAuthorized("phish_ip_scan");
+      setText("phish-result", "Running phishing and IP intelligence checks...");
+      const r = await analyzePhishAndIp($("domain-input").value.trim(), $("ip-input").value.trim());
+      setText("phish-result", r.msg);
+      state.factors.phish = r.score;
+      setRisk();
+    } catch (error) {
+      setText("phish-result", String(error.message || error));
+    }
+  });
+
+  $("cred-btn").addEventListener("click", async () => {
+    try {
+      await ensureAuthorized("credential_scan");
+      setText("cred-result", "Running password and breach checks...");
+      const r = await analyzeCredentials($("password-input").value, $("email-input").value.trim());
+      setText("cred-result", r.msg);
+      state.factors.creds = r.score;
+      setRisk();
+    } catch (error) {
+      setText("cred-result", String(error.message || error));
+    }
+  });
+}
+
 async function init() {
   setupNews();
   setupMatrix();
@@ -686,13 +934,13 @@ async function init() {
   setupDashboard();
   setupHeatmap();
   setupLab();
-  setupPayment();
   setupForms();
   setRisk();
+  setProtectedEnabled(false);
 
   await initIntel();
   wireScans();
-  $("url-result").textContent = `Intel loaded: ${state.intel.phishDomains.size} phishing domains, ${state.intel.malwareHashes.size} malware hashes.`;
+  await setupAuth();
 }
 
 init();
