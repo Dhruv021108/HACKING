@@ -64,6 +64,14 @@ const recMap = {
 const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+function hasUsableFirebaseConfig(cfg) {
+  const required = ["apiKey", "authDomain", "projectId", "appId"];
+  return required.every((key) => {
+    const value = String(cfg?.[key] || "").trim();
+    return value && !value.startsWith("YOUR_FIREBASE_");
+  });
+}
+
 function setText(id, text) {
   const el = $(id);
   if (el) el.textContent = text;
@@ -752,10 +760,10 @@ async function refreshBillingHistory() {
 async function setupAuth() {
   const cfg = window.SECUREX_CONFIG?.firebase;
   setGateVisible(true);
-  if (!cfg?.apiKey || !cfg?.authDomain || !cfg?.projectId || !cfg?.appId) {
-    setAuthStatus("Firebase config missing. Fill securex.config.js and redeploy.");
+  if (!hasUsableFirebaseConfig(cfg)) {
+    setAuthStatus("Firebase config missing. Fill apiKey, authDomain, projectId, and appId in securex.config.js.");
     setProtectedEnabled(false);
-    setText("gate-status", "Firebase configuration is missing. Add credentials in securex.config.js.");
+    setText("gate-status", "Firebase is not configured yet. Add your web app credentials in securex.config.js, then redeploy.");
     $("gate-login-btn").disabled = true;
     return;
   }

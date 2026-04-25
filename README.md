@@ -20,6 +20,13 @@ This project now includes:
 3. Create Firestore database.
 4. Add web app in Firebase console and copy config.
 5. Copy `securex.config.example.js` to `securex.config.js` and fill values.
+6. Required frontend keys in `securex.config.js`:
+   - `apiKey`
+   - `authDomain`
+   - `projectId`
+   - `appId`
+
+These values come from Firebase Console -> Project settings -> General -> Your apps -> Web app -> SDK setup and configuration.
 
 ## 3) Functions environment
 In `functions/`, install dependencies:
@@ -55,6 +62,9 @@ firebase deploy
 This deploys:
 - Hosting (frontend)
 - Function: `api` (all `/api/*` endpoints)
+
+## GitHub Pages workflow note
+The repository workflow now opts into Node 24 for JavaScript-based actions to avoid the current Node 20 deprecation warning shown by GitHub Actions runners.
 
 ## 6) Razorpay webhook
 In Razorpay dashboard webhook settings:
