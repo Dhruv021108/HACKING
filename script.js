@@ -191,13 +191,7 @@ function apiBase() {
 function buildApiUrl(path) {
   const base = apiBase();
   if (!base) return path;
-
-  let normalizedPath = path;
-  if (/\/cloudfunctions\.net\/api$/i.test(base) || /\/run\.app\/api$/i.test(base)) {
-    normalizedPath = path.replace(/^\/api/, "");
-  }
-
-  return `${base}${normalizedPath}`;
+  return `${base}${path}`;
 }
 
 function nextUtcResetIso() {
