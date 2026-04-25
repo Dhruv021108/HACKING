@@ -65,6 +65,16 @@ const recMap = {
 const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+function getConfiguredInrMonthly() {
+  const direct = Number(window.SECUREX_CONFIG?.pricing?.inrMonthly || 0);
+  if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+
+  const usdMonthly = Number(window.SECUREX_CONFIG?.pricing?.usdMonthly || 29);
+  const usdToInr = Number(window.SECUREX_CONFIG?.pricing?.usdToInr || 83);
+  const estimated = usdMonthly * usdToInr;
+  return Math.max(1, Math.round(estimated));
+}
+
 function hasUsableFirebaseConfig(cfg) {
   const required = ["apiKey", "authDomain", "projectId", "appId"];
   return required.every((key) => {
@@ -205,11 +215,16 @@ function openHostedProCheckout() {
   const checkoutUrl = getConfiguredProCheckoutUrl();
   if (!checkoutUrl) return false;
 
+  const paymentRef = `upi_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const params = new URLSearchParams();
   if (state.user?.uid) params.set("uid", state.user.uid);
   if (state.user?.email) params.set("email", state.user.email);
   params.set("plan", "pro");
-  params.set("returnUrl", `${window.location.origin}${window.location.pathname}?payment=success&source=checkout#pricing`);
+  params.set("paymentRef", paymentRef);
+  params.set(
+    "returnUrl",
+    `${window.location.origin}${window.location.pathname}?payment=success&source=checkout&paymentRef=${paymentRef}#pricing`
+  );
 
   const separator = checkoutUrl.includes("?") ? "&" : "?";
   window.location.href = `${checkoutUrl}${separator}${params.toString()}`;
@@ -244,6 +259,32 @@ function localSubscriptionKey(uid) {
   return `securex_local_subscription_${uid}`;
 }
 
+function localPaymentsKey(uid) {
+  return `securex_local_payments_${uid}`;
+}
+
+function readLocalPayments(uid) {
+  const raw = localStorage.getItem(localPaymentsKey(uid));
+  if (!raw) return [];
+  try {
+    const items = JSON.parse(raw);
+    if (!Array.isArray(items)) return [];
+    return items.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalPayments(uid, items) {
+  localStorage.setItem(localPaymentsKey(uid), JSON.stringify(items.slice(0, 20)));
+}
+
+function appendLocalPayment(uid, payment) {
+  const items = readLocalPayments(uid);
+  items.unshift(payment);
+  writeLocalPayments(uid, items);
+}
+
 function readLocalSubscription(uid) {
   const key = localSubscriptionKey(uid);
   let subscription = null;
@@ -273,7 +314,7 @@ function writeLocalSubscription(uid, subscription) {
   localStorage.setItem(localSubscriptionKey(uid), JSON.stringify(subscription));
 }
 
-function activateLocalPro(uid) {
+function activateLocalPro(uid, paymentRef = "") {
   const now = new Date();
   const expires = new Date(now);
   expires.setDate(expires.getDate() + 30);
@@ -292,6 +333,15 @@ function activateLocalPro(uid) {
     resetAt: usage.resetAt,
     updatedAt: new Date().toISOString()
   });
+
+  appendLocalPayment(uid, {
+    paymentId: paymentRef || `local_${Date.now()}`,
+    status: "captured",
+    currency: "INR",
+    amount: getConfiguredInrMonthly(),
+    createdAt: now.toISOString(),
+    mode: "hosted_checkout"
+  });
 }
 
 function maybeActivateLocalProFromUrl(uid) {
@@ -299,10 +349,12 @@ function maybeActivateLocalProFromUrl(uid) {
   const paid = url.searchParams.get("payment");
   if (paid !== "success") return false;
 
-  activateLocalPro(uid);
+  const paymentRef = String(url.searchParams.get("paymentRef") || "");
+  activateLocalPro(uid, paymentRef);
 
   url.searchParams.delete("payment");
   url.searchParams.delete("source");
+  url.searchParams.delete("paymentRef");
   history.replaceState({}, "", url.toString());
   return true;
 }
@@ -342,10 +394,12 @@ function bootstrapLocalUser() {
   const usage = readLocalUsage(uid);
   const dailyCredits = localPlanLimit(usage.plan);
   const remaining = Math.max(0, dailyCredits - usage.usedToday);
+  const checkoutEnabled = Boolean(getConfiguredProCheckoutUrl());
+  const inrMonthly = getConfiguredInrMonthly();
 
   state.localMode = true;
   state.plan = usage.plan;
-  state.subscriptionStatus = subscription.active ? subscription.status : "local_mode";
+  state.subscriptionStatus = subscription.active ? subscription.status : checkoutEnabled ? "checkout_ready" : "local_mode";
   state.dailyCredits = dailyCredits;
   state.remainingCredits = remaining;
   state.resetAtIso = usage.resetAt;
@@ -354,7 +408,9 @@ function bootstrapLocalUser() {
     "inr-price",
     subscription.active
       ? "Local Pro active for 30 days."
-      : "Backend not reachable. Running in local mode."
+      : checkoutEnabled
+        ? `Secure checkout enabled at INR ${inrMonthly}/month (display $29/mo).`
+        : "Backend not reachable. Running in local mode."
   );
 }
 
@@ -966,9 +1022,28 @@ function setGateVisible(visible) {
 
 async function refreshBillingHistory() {
   if (!state.user) return;
+  const list = $("billing-history");
+  if (!list) return;
+
+  if (state.localMode) {
+    const items = readLocalPayments(state.user.uid);
+    list.innerHTML = "";
+    if (!items.length) {
+      list.innerHTML = "<li>No payment records yet.</li>";
+      return;
+    }
+
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      const when = item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "today";
+      li.textContent = `${String(item.status || "captured").toUpperCase()} - INR ${item.amount} (${item.paymentId}) • ${when}`;
+      list.appendChild(li);
+    });
+    return;
+  }
+
   try {
     const data = await apiFetch("/api/payments/history", { method: "GET" });
-    const list = $("billing-history");
     list.innerHTML = "";
     if (!data.items || !data.items.length) {
       list.innerHTML = "<li>No payment records yet.</li>";
@@ -1043,15 +1118,15 @@ async function setupAuth() {
 
     try {
       await bootstrapUser();
-      if (!state.localMode) {
-        await refreshBillingHistory();
-      }
+      await refreshBillingHistory();
       setProtectedEnabled(true);
       setAuthStatus(
         state.localMode
           ? localActivated
-            ? "Payment captured in local mode. Pro activated."
-            : "Authenticated in local mode. Deploy backend API for server-enforced credits."
+            ? "Payment captured. Pro is active."
+            : state.subscriptionStatus === "checkout_ready"
+              ? "Authenticated. Secure checkout is ready."
+              : "Authenticated in local mode. Deploy backend API for server-enforced credits."
           : "Authenticated. Credits are enforced server-side."
       );
       setGateVisible(false);
@@ -1113,6 +1188,10 @@ async function setupAuth() {
     } catch (error) {
       if (isBackendUnavailable(error)) {
         const opened = openHostedProCheckout();
+        if (opened) {
+          state.subscriptionStatus = "checkout_redirected";
+          updatePlanUi();
+        }
         setAuthStatus(
           opened
             ? "Backend checkout API unavailable. Opening secure checkout page..."

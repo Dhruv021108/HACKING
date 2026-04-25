@@ -123,13 +123,18 @@
     const note = "SecureX Pro Subscription";
     const params = new URLSearchParams(window.location.search);
     const returnUrl = params.get("returnUrl") || "https://dhruv021108.github.io/HACKING/?payment=success&source=checkout#pricing";
+    const paymentRef = params.get("paymentRef") || `upi_${Date.now().toString(36)}`;
     const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent("SecureX")}&am=${encodeURIComponent(amount)}&cu=INR&tn=${encodeURIComponent(note)}`;
     const qr = document.getElementById("upi-qr");
     const btn = document.getElementById("upi-btn");
     const activate = document.getElementById("activate-btn");
+    const finalReturn = new URL(returnUrl, window.location.origin);
+    finalReturn.searchParams.set("payment", "success");
+    finalReturn.searchParams.set("source", "checkout");
+    finalReturn.searchParams.set("paymentRef", paymentRef);
     qr.src = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(upiUri)}`;
     btn.href = upiUri;
-    activate.href = returnUrl;
+    activate.href = finalReturn.toString();
     document.getElementById("copy-btn").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(upiId);
