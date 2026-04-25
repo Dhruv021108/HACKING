@@ -1,4 +1,7 @@
 window.SECUREX_CONFIG = {
+  // Optional: set your deployed API base URL.
+  // Example: "https://us-central1-<project-id>.cloudfunctions.net/api"
+  apiBaseUrl: "",
   firebase: {
     apiKey: "AIzaSyCvakUHL0WReMx5J7PwhWQdefA0tpreHSw",
     authDomain: "gen-lang-client-0541838019.firebaseapp.com",

@@ -12,6 +12,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   authReady: false,
   firebaseReady: false,
+  localMode: false,
   user: null,
   idToken: "",
   plan: "free",
@@ -173,7 +174,128 @@ async function initIntel() {
 }
 
 function apiBase() {
+  const explicitBase = String(window.SECUREX_CONFIG?.apiBaseUrl || "").trim();
+  if (explicitBase) return explicitBase.replace(/\/+$/, "");
+
+  const projectId = String(window.SECUREX_CONFIG?.firebase?.projectId || "").trim();
+  if (!projectId) return "";
+
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".github.io")) {
+    return `https://us-central1-${projectId}.cloudfunctions.net/api`;
+  }
+
   return "";
+}
+
+function buildApiUrl(path) {
+  const base = apiBase();
+  if (!base) return path;
+
+  let normalizedPath = path;
+  if (/\/cloudfunctions\.net\/api$/i.test(base) || /\/run\.app\/api$/i.test(base)) {
+    normalizedPath = path.replace(/^\/api/, "");
+  }
+
+  return `${base}${normalizedPath}`;
+}
+
+function nextUtcResetIso() {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+  return next.toISOString();
+}
+
+function isBackendUnavailable(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("api request failed") ||
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("cors")
+  );
+}
+
+function localPlanLimit(plan) {
+  return plan === "pro" ? 200 : 10;
+}
+
+function localUsageKey(uid) {
+  return `securex_local_usage_${uid}`;
+}
+
+function readLocalUsage(uid) {
+  const key = localUsageKey(uid);
+  let usage = null;
+  try {
+    usage = JSON.parse(localStorage.getItem(key) || "null");
+  } catch {
+    usage = null;
+  }
+
+  const resetAtIso = usage?.resetAt || nextUtcResetIso();
+  const resetAt = new Date(resetAtIso).getTime();
+  const now = Date.now();
+  const usedToday = resetAt <= now ? 0 : Number(usage?.usedToday || 0);
+  const nextReset = resetAt <= now ? nextUtcResetIso() : resetAtIso;
+
+  return {
+    plan: usage?.plan || "free",
+    usedToday,
+    resetAt: nextReset
+  };
+}
+
+function writeLocalUsage(uid, usage) {
+  localStorage.setItem(localUsageKey(uid), JSON.stringify(usage));
+}
+
+function bootstrapLocalUser() {
+  const uid = state.user?.uid;
+  if (!uid) throw new Error("Sign in with Google first.");
+
+  const usage = readLocalUsage(uid);
+  const dailyCredits = localPlanLimit(usage.plan);
+  const remaining = Math.max(0, dailyCredits - usage.usedToday);
+
+  state.localMode = true;
+  state.plan = usage.plan;
+  state.subscriptionStatus = "local_mode";
+  state.dailyCredits = dailyCredits;
+  state.remainingCredits = remaining;
+  state.resetAtIso = usage.resetAt;
+  updatePlanUi();
+  setText("inr-price", "Backend not reachable. Running in local mode.");
+}
+
+function consumeLocalCredit(action) {
+  const uid = state.user?.uid;
+  if (!uid) throw new Error("Sign in with Google first.");
+
+  const usage = readLocalUsage(uid);
+  const dailyCredits = localPlanLimit(usage.plan);
+  if (usage.usedToday >= dailyCredits) {
+    state.remainingCredits = 0;
+    state.resetAtIso = usage.resetAt;
+    updatePlanUi();
+    throw new Error("Daily credits exhausted. Backend unavailable, local limit reached.");
+  }
+
+  const nextUsage = {
+    plan: usage.plan,
+    usedToday: usage.usedToday + 1,
+    resetAt: usage.resetAt,
+    lastAction: action,
+    updatedAt: new Date().toISOString()
+  };
+  writeLocalUsage(uid, nextUsage);
+
+  state.localMode = true;
+  state.plan = usage.plan;
+  state.dailyCredits = dailyCredits;
+  state.remainingCredits = Math.max(0, dailyCredits - nextUsage.usedToday);
+  state.resetAtIso = usage.resetAt;
+  updatePlanUi();
 }
 
 async function apiFetch(path, options = {}) {
@@ -184,44 +306,60 @@ async function apiFetch(path, options = {}) {
 
   if (state.idToken) headers.Authorization = `Bearer ${state.idToken}`;
 
-  const resp = await fetch(`${apiBase()}${path}`, { ...options, headers });
+  const resp = await fetch(buildApiUrl(path), { ...options, headers });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    throw new Error(data.error || "API request failed");
+    throw new Error(data.error || `API request failed (${resp.status})`);
   }
   return data;
 }
 
 async function bootstrapUser() {
-  const data = await apiFetch("/api/users/bootstrap", { method: "POST", body: "{}" });
-  state.plan = data.plan || "free";
-  state.subscriptionStatus = data.subscriptionStatus || "inactive";
-  state.remainingCredits = Number(data.remaining || 0);
-  state.dailyCredits = Number(data.dailyCredits || 10);
-  state.resetAtIso = data.resetAt || null;
-  if (data?.price?.inrMonthly) {
-    setText("inr-price", `Charged as approx INR ${data.price.inrMonthly}/month (display: $${data.price.usdMonthly}/mo).`);
+  try {
+    const data = await apiFetch("/api/users/bootstrap", { method: "POST", body: "{}" });
+    state.localMode = false;
+    state.plan = data.plan || "free";
+    state.subscriptionStatus = data.subscriptionStatus || "inactive";
+    state.remainingCredits = Number(data.remaining || 0);
+    state.dailyCredits = Number(data.dailyCredits || 10);
+    state.resetAtIso = data.resetAt || null;
+    if (data?.price?.inrMonthly) {
+      setText("inr-price", `Charged as approx INR ${data.price.inrMonthly}/month (display: $${data.price.usdMonthly}/mo).`);
+    }
+    updatePlanUi();
+  } catch (error) {
+    if (!isBackendUnavailable(error)) throw error;
+    bootstrapLocalUser();
   }
-  updatePlanUi();
 }
 
 async function consumeCredit(action) {
-  const data = await apiFetch("/api/credits/consume", {
-    method: "POST",
-    body: JSON.stringify({ action })
-  });
-
-  if (!data.allowed) {
-    state.remainingCredits = 0;
-    state.resetAtIso = data.resetAt || state.resetAtIso;
-    updatePlanUi();
-    throw new Error("Daily credits exhausted. Upgrade to Pro for 200 credits/day.");
+  if (state.localMode) {
+    consumeLocalCredit(action);
+    return;
   }
 
-  state.remainingCredits = Number(data.remaining || 0);
-  state.plan = data.plan || state.plan;
-  state.resetAtIso = data.resetAt || state.resetAtIso;
-  updatePlanUi();
+  try {
+    const data = await apiFetch("/api/credits/consume", {
+      method: "POST",
+      body: JSON.stringify({ action })
+    });
+
+    if (!data.allowed) {
+      state.remainingCredits = 0;
+      state.resetAtIso = data.resetAt || state.resetAtIso;
+      updatePlanUi();
+      throw new Error("Daily credits exhausted. Upgrade to Pro for 200 credits/day.");
+    }
+
+    state.remainingCredits = Number(data.remaining || 0);
+    state.plan = data.plan || state.plan;
+    state.resetAtIso = data.resetAt || state.resetAtIso;
+    updatePlanUi();
+  } catch (error) {
+    if (!isBackendUnavailable(error)) throw error;
+    consumeLocalCredit(action);
+  }
 }
 
 async function ensureAuthorized(actionName) {
@@ -814,9 +952,15 @@ async function setupAuth() {
 
     try {
       await bootstrapUser();
-      await refreshBillingHistory();
+      if (!state.localMode) {
+        await refreshBillingHistory();
+      }
       setProtectedEnabled(true);
-      setAuthStatus("Authenticated. Credits are enforced server-side.");
+      setAuthStatus(
+        state.localMode
+          ? "Authenticated in local mode. Deploy backend API for server-enforced credits."
+          : "Authenticated. Credits are enforced server-side."
+      );
       setGateVisible(false);
     } catch (error) {
       setProtectedEnabled(false);
