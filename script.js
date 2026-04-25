@@ -209,9 +209,10 @@ function openHostedProCheckout() {
   if (state.user?.uid) params.set("uid", state.user.uid);
   if (state.user?.email) params.set("email", state.user.email);
   params.set("plan", "pro");
+  params.set("returnUrl", `${window.location.origin}${window.location.pathname}?payment=success&source=checkout#pricing`);
 
   const separator = checkoutUrl.includes("?") ? "&" : "?";
-  window.open(`${checkoutUrl}${separator}${params.toString()}`, "_blank", "noopener,noreferrer");
+  window.location.href = `${checkoutUrl}${separator}${params.toString()}`;
   return true;
 }
 
@@ -239,6 +240,73 @@ function localUsageKey(uid) {
   return `securex_local_usage_${uid}`;
 }
 
+function localSubscriptionKey(uid) {
+  return `securex_local_subscription_${uid}`;
+}
+
+function readLocalSubscription(uid) {
+  const key = localSubscriptionKey(uid);
+  let subscription = null;
+  try {
+    subscription = JSON.parse(localStorage.getItem(key) || "null");
+  } catch {
+    subscription = null;
+  }
+
+  if (!subscription || subscription.plan !== "pro") {
+    return { active: false, plan: "free", status: "inactive", expiresAt: null };
+  }
+
+  const expiresAt = String(subscription.expiresAt || "");
+  const expiresMs = new Date(expiresAt).getTime();
+  const active = Number.isFinite(expiresMs) && expiresMs > Date.now();
+
+  return {
+    active,
+    plan: active ? "pro" : "free",
+    status: active ? (subscription.status || "active_local") : "expired",
+    expiresAt: active ? expiresAt : null
+  };
+}
+
+function writeLocalSubscription(uid, subscription) {
+  localStorage.setItem(localSubscriptionKey(uid), JSON.stringify(subscription));
+}
+
+function activateLocalPro(uid) {
+  const now = new Date();
+  const expires = new Date(now);
+  expires.setDate(expires.getDate() + 30);
+
+  writeLocalSubscription(uid, {
+    plan: "pro",
+    status: "active_local",
+    paidAt: now.toISOString(),
+    expiresAt: expires.toISOString()
+  });
+
+  const usage = readLocalUsage(uid);
+  writeLocalUsage(uid, {
+    plan: "pro",
+    usedToday: Math.min(usage.usedToday, localPlanLimit("pro")),
+    resetAt: usage.resetAt,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function maybeActivateLocalProFromUrl(uid) {
+  const url = new URL(window.location.href);
+  const paid = url.searchParams.get("payment");
+  if (paid !== "success") return false;
+
+  activateLocalPro(uid);
+
+  url.searchParams.delete("payment");
+  url.searchParams.delete("source");
+  history.replaceState({}, "", url.toString());
+  return true;
+}
+
 function readLocalUsage(uid) {
   const key = localUsageKey(uid);
   let usage = null;
@@ -253,9 +321,10 @@ function readLocalUsage(uid) {
   const now = Date.now();
   const usedToday = resetAt <= now ? 0 : Number(usage?.usedToday || 0);
   const nextReset = resetAt <= now ? nextUtcResetIso() : resetAtIso;
+  const subscription = readLocalSubscription(uid);
 
   return {
-    plan: usage?.plan || "free",
+    plan: subscription.active ? "pro" : (usage?.plan || "free"),
     usedToday,
     resetAt: nextReset
   };
@@ -269,18 +338,24 @@ function bootstrapLocalUser() {
   const uid = state.user?.uid;
   if (!uid) throw new Error("Sign in with Google first.");
 
+  const subscription = readLocalSubscription(uid);
   const usage = readLocalUsage(uid);
   const dailyCredits = localPlanLimit(usage.plan);
   const remaining = Math.max(0, dailyCredits - usage.usedToday);
 
   state.localMode = true;
   state.plan = usage.plan;
-  state.subscriptionStatus = "local_mode";
+  state.subscriptionStatus = subscription.active ? subscription.status : "local_mode";
   state.dailyCredits = dailyCredits;
   state.remainingCredits = remaining;
   state.resetAtIso = usage.resetAt;
   updatePlanUi();
-  setText("inr-price", "Backend not reachable. Running in local mode.");
+  setText(
+    "inr-price",
+    subscription.active
+      ? "Local Pro active for 30 days."
+      : "Backend not reachable. Running in local mode."
+  );
 }
 
 function consumeLocalCredit(action) {
@@ -960,6 +1035,7 @@ async function setupAuth() {
     }
 
     state.idToken = await user.getIdToken(true);
+    const localActivated = maybeActivateLocalProFromUrl(user.uid);
     $("google-login-btn").classList.add("hidden");
     $("auth-user").classList.remove("hidden");
     $("user-avatar").src = user.photoURL || "";
@@ -973,7 +1049,9 @@ async function setupAuth() {
       setProtectedEnabled(true);
       setAuthStatus(
         state.localMode
-          ? "Authenticated in local mode. Deploy backend API for server-enforced credits."
+          ? localActivated
+            ? "Payment captured in local mode. Pro activated."
+            : "Authenticated in local mode. Deploy backend API for server-enforced credits."
           : "Authenticated. Credits are enforced server-side."
       );
       setGateVisible(false);
@@ -1037,7 +1115,7 @@ async function setupAuth() {
         const opened = openHostedProCheckout();
         setAuthStatus(
           opened
-            ? "Backend checkout API unavailable. Opened hosted payment page."
+            ? "Backend checkout API unavailable. Opening secure checkout page..."
             : "Checkout backend unavailable. Deploy Functions API or set SECUREX_CONFIG.proCheckoutUrl."
         );
         return;

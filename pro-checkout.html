@@ -108,6 +108,7 @@
     <div class="row">
       <a id="upi-btn" class="btn btn-red" href="#" rel="noopener">Pay with UPI App</a>
       <button id="copy-btn" class="btn btn-cyan" type="button">Copy UPI ID</button>
+      <a id="activate-btn" class="btn btn-cyan" href="#">I Have Paid - Activate Pro</a>
     </div>
 
     <div class="qr-wrap">
@@ -120,11 +121,15 @@
     const upiId = "7021157367@fam";
     const amount = "2407.00";
     const note = "SecureX Pro Subscription";
+    const params = new URLSearchParams(window.location.search);
+    const returnUrl = params.get("returnUrl") || "https://dhruv021108.github.io/HACKING/?payment=success&source=checkout#pricing";
     const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent("SecureX")}&am=${encodeURIComponent(amount)}&cu=INR&tn=${encodeURIComponent(note)}`;
     const qr = document.getElementById("upi-qr");
     const btn = document.getElementById("upi-btn");
+    const activate = document.getElementById("activate-btn");
     qr.src = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(upiUri)}`;
     btn.href = upiUri;
+    activate.href = returnUrl;
     document.getElementById("copy-btn").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(upiId);
