@@ -1,9 +1,9 @@
 ﻿window.SECUREX_CONFIG = {
   firebase: {
-    apiKey: "YOUR_FIREBASE_API_KEY",
-    authDomain: "YOUR_FIREBASE_AUTH_DOMAIN",
-    projectId: "YOUR_FIREBASE_PROJECT_ID",
-    appId: "YOUR_FIREBASE_APP_ID"
+    apiKey: "AIzaSyCvakUHL0WReMx5J7PwHWQdefA0tpreHSw",
+    authDomain: "gen-lang-client-0541838019.firebaseapp.com",
+    projectId: "gen-lang-client-0541838019",
+    appId: "1:197633893752:web:a7d9d7d0b14b9ac533d48d"
   },
   pricing: {
     usdMonthly: 29
