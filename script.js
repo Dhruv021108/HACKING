@@ -194,6 +194,27 @@ function buildApiUrl(path) {
   return `${base}${path}`;
 }
 
+function getConfiguredProCheckoutUrl() {
+  const checkoutUrl = String(window.SECUREX_CONFIG?.proCheckoutUrl || "").trim();
+  if (!checkoutUrl) return "";
+  if (!/^https?:\/\//i.test(checkoutUrl)) return "";
+  return checkoutUrl;
+}
+
+function openHostedProCheckout() {
+  const checkoutUrl = getConfiguredProCheckoutUrl();
+  if (!checkoutUrl) return false;
+
+  const params = new URLSearchParams();
+  if (state.user?.uid) params.set("uid", state.user.uid);
+  if (state.user?.email) params.set("email", state.user.email);
+  params.set("plan", "pro");
+
+  const separator = checkoutUrl.includes("?") ? "&" : "?";
+  window.open(`${checkoutUrl}${separator}${params.toString()}`, "_blank", "noopener,noreferrer");
+  return true;
+}
+
 function nextUtcResetIso() {
   const now = new Date();
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
@@ -1012,6 +1033,15 @@ async function setupAuth() {
       const rz = new window.Razorpay(options);
       rz.open();
     } catch (error) {
+      if (isBackendUnavailable(error)) {
+        const opened = openHostedProCheckout();
+        setAuthStatus(
+          opened
+            ? "Backend checkout API unavailable. Opened hosted payment page."
+            : "Checkout backend unavailable. Deploy Functions API or set SECUREX_CONFIG.proCheckoutUrl."
+        );
+        return;
+      }
       setAuthStatus(`Checkout init failed: ${String(error.message || error)}`);
     }
   });

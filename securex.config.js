@@ -2,6 +2,9 @@ window.SECUREX_CONFIG = {
   // Optional: set your deployed API base URL.
   // Example: "https://us-central1-<project-id>.cloudfunctions.net/api"
   apiBaseUrl: "",
+  // Optional: Razorpay hosted checkout link as payment fallback when backend API is unavailable.
+  // Example: "https://rzp.io/rzp/<your-link-id>"
+  proCheckoutUrl: "",
   firebase: {
     apiKey: "AIzaSyCvakUHL0WReMx5J7PwhWQdefA0tpreHSw",
     authDomain: "gen-lang-client-0541838019.firebaseapp.com",
